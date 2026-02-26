@@ -16,7 +16,7 @@ app = FastAPI(
     version=settings.APP_VERSION,
     description="Enterprise AI Security Red Teaming Platform API",
     docs_url="/api/docs",
-    redoc_url="/api/redoc"
+    redoc_url="/api/redoc",
 )
 
 # CORS middleware
@@ -28,6 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Database dependency
 def get_db():
     SessionLocal = get_session_local()
@@ -36,6 +37,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
 
 # Include routers
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
@@ -186,11 +188,12 @@ HTML_CONTENT = """<!DOCTYPE html>
 
 # HTML Content - serve FULL_DEMO.html
 import os
-# main.py is at: project/enterprise-ai-security-platform/backend/app/main.py
-# FULL_DEMO.html is at: project/FULL_DEMO.html (4 levels up from app/)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# Go one more level up to the main project folder
-PROJECT_ROOT = os.path.dirname(PROJECT_ROOT)
+
+# main.py is at: distribution/backend/app/main.py
+# FULL_DEMO.html is at: distribution/FULL_DEMO.html (3 levels up from app/)
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
 FULL_DEMO = os.path.join(PROJECT_ROOT, "FULL_DEMO.html")
 
 if os.path.exists(FULL_DEMO):
@@ -198,23 +201,35 @@ if os.path.exists(FULL_DEMO):
         HTML_CONTENT = f.read()
     print(f"[OK] Loaded FULL_DEMO.html from {FULL_DEMO}")
 else:
-    HTML_CONTENT = """<!DOCTYPE html>
+    HTML_CONTENT = (
+        """<!DOCTYPE html>
 <html><head><title>Error</title></head>
-<body><h1>FULL_DEMO.html not found at: """ + FULL_DEMO + """</h1></body></html>"""
+<body><h1>FULL_DEMO.html not found at: """
+        + FULL_DEMO
+        + """</h1></body></html>"""
+    )
+
 
 @app.get("/", response_class=HTMLResponse)
 def root():
     """Serve the web interface at root"""
     return HTML_CONTENT
 
+
 @app.get("/ui", response_class=HTMLResponse)
 def serve_ui():
     """Serve the web interface"""
     return HTML_CONTENT
 
+
 @app.get("/api/v1")
 def api_root():
     return {
         "message": "API v1",
-        "endpoints": ["/api/v1/health", "/api/v1/security-tests", "/api/v1/attack-scenarios", "/api/v1/models"]
+        "endpoints": [
+            "/api/v1/health",
+            "/api/v1/security-tests",
+            "/api/v1/attack-scenarios",
+            "/api/v1/models",
+        ],
     }

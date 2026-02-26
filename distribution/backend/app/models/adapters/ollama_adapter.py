@@ -5,18 +5,28 @@ from .base import ModelAdapter
 
 class OllamaAdapter(ModelAdapter):
     """Adapter for local models via Ollama"""
-    
-    def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3", timeout: int = 30, max_retries: int = 3):
+
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434",
+        model: str = "llama3",
+        timeout: int = 180,
+        max_retries: int = 3,
+    ):
         super().__init__(timeout, max_retries)
         self.base_url = base_url
         self.model = model
         self.model_type = "local"
-    
-    def generate(self, prompt: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+
+    def generate(
+        self, prompt: str, params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Generate response using Ollama API"""
         if params is None:
             params = {}
-        
+
+        print(f"[OLLAMA] Sending request to {self.base_url} with model {self.model}")
+
         try:
             response = requests.post(
                 f"{self.base_url}/api/generate",
@@ -27,11 +37,11 @@ class OllamaAdapter(ModelAdapter):
                     "options": {
                         "temperature": params.get("temperature", 0.7),
                         "num_predict": params.get("max_tokens", 1000),
-                    }
+                    },
                 },
-                timeout=self.timeout
+                timeout=self.timeout,
             )
-            
+
             if response.status_code == 200:
                 data = response.json()
                 return {
@@ -42,8 +52,8 @@ class OllamaAdapter(ModelAdapter):
                     "metadata": {
                         "tokens_used": data.get("eval_count", 0),
                         "response_time_ms": 0,
-                        "model_version": self.model
-                    }
+                        "model_version": self.model,
+                    },
                 }
             else:
                 # Fallback to simulated response
@@ -55,11 +65,12 @@ class OllamaAdapter(ModelAdapter):
                     "metadata": {
                         "tokens_used": len(prompt.split()),
                         "response_time_ms": 0,
-                        "model_version": self.model
-                    }
+                        "model_version": self.model,
+                    },
                 }
         except Exception as e:
             # Fallback to simulated response if Ollama is not running
+            print(f"[OLLAMA] ERROR: {str(e)}")
             return {
                 "response_text": f"[Simulated Ollama response for: {prompt[:50]}...]",
                 "model_name": self.model,
@@ -68,55 +79,58 @@ class OllamaAdapter(ModelAdapter):
                 "metadata": {
                     "error": str(e),
                     "response_time_ms": 0,
-                    "model_version": self.model
-                }
+                    "model_version": self.model,
+                },
             }
-    
+
     def get_model_info(self) -> Dict[str, str]:
         return {
             "model_name": self.model,
             "model_type": self.model_type,
-            "vendor": "ollama"
+            "vendor": "ollama",
         }
 
 
 def create_adapter(model_config: Dict[str, Any]) -> ModelAdapter:
     """Factory function to create appropriate adapter based on config"""
     adapter_type = model_config.get("adapter")
-    
+
     # Import here to avoid circular imports
     if adapter_type == "openai":
         from .openai_adapter import OpenAIAdapter
         from app.core.config import settings
+
         return OpenAIAdapter(
             api_key=settings.OPENAI_API_KEY or "demo-key",
-            model=model_config.get("model", "gpt-4")
+            model=model_config.get("model", "gpt-4"),
         )
     elif adapter_type == "anthropic":
         from .anthropic_adapter import AnthropicAdapter
         from app.core.config import settings
+
         return AnthropicAdapter(
             api_key=settings.ANTHROPIC_API_KEY or "demo-key",
-            model=model_config.get("model", "claude-3-opus-20240229")
+            model=model_config.get("model", "claude-3-opus-20240229"),
         )
     elif adapter_type == "google":
         from .google_adapter import GoogleAdapter
         from app.core.config import settings
+
         return GoogleAdapter(
             api_key=settings.GOOGLE_API_KEY or "demo-key",
-            model=model_config.get("model", "gemini-1.5-pro")
+            model=model_config.get("model", "gemini-1.5-pro"),
         )
     elif adapter_type == "ollama":
         from app.core.config import settings
+
         return OllamaAdapter(
-            base_url=settings.OLLAMA_BASE_URL,
-            model=model_config.get("model", "llama3")
+            base_url=settings.OLLAMA_BASE_URL, model=model_config.get("model", "llama3")
         )
     else:
         # Default to OpenAI
         from .openai_adapter import OpenAIAdapter
         from app.core.config import settings
+
         return OpenAIAdapter(
-            api_key=settings.OPENAI_API_KEY or "demo-key",
-            model="gpt-4"
+            api_key=settings.OPENAI_API_KEY or "demo-key", model="gpt-4"
         )
