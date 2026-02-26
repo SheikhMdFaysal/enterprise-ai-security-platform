@@ -22,6 +22,8 @@ wheels/
 .coverage
 htmlcov/
 .env
+.env.prod
+.env.backup
 .venv/
 env/
 venv/
@@ -32,3 +34,6 @@ ENV/
 *.sqlite3
 .DS_Store
 Thumbs.db
+.ruff_cache/
+desktop.ini
+logs/

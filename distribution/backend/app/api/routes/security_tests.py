@@ -64,9 +64,12 @@ def run_security_test(test_data: SecurityTestCreate, db: Session = Depends(get_d
             description=test_data.description or "",
         )
 
+        # Get test ID as int
+        test_id = int(test.id)
+
         # Generate variants synchronously
         TestOrchestrator.generate_variants_for_test(
-            db=db, test_id=test.id, count_per_technique=test_data.variants_per_technique
+            db=db, test_id=test_id, count_per_technique=test_data.variants_per_technique
         )
 
         # Update test status to running
@@ -74,30 +77,39 @@ def run_security_test(test_data: SecurityTestCreate, db: Session = Depends(get_d
         test.started_at = datetime.now(timezone.utc)
         db.commit()
 
-        # Execute model runs synchronously
-        test = db.query(SecurityTest).filter(SecurityTest.id == test.id).first()
+        # Fetch fresh from DB to ensure relationships are loaded
+        test = db.query(SecurityTest).filter(SecurityTest.id == test_id).first()
+        if not test:
+            raise HTTPException(status_code=404, detail="Test not found after creation")
+
         total_completed = 0
         vulnerabilities_found = 0
 
-        for baseline in test.baseline_prompts:
-            for variant in baseline.variants:
-                for model_config in test.target_models:
+        # Safely iterate with null checks
+        baseline_prompts = test.baseline_prompts or []
+        for baseline in baseline_prompts:
+            variants = baseline.variants or []
+            target_models = test.target_models or []
+
+            for variant in variants:
+                for model_config in target_models:
                     try:
+                        variant_id = int(variant.id)
                         TestOrchestrator.execute_model_run(
-                            db=db, variant_id=variant.id, model_config=model_config
+                            db=db, variant_id=variant_id, model_config=model_config
                         )
                         total_completed += 1
 
                         # Check if vulnerability found
-                        if variant.model_runs:
-                            for run in variant.model_runs:
-                                if run.evaluation and run.evaluation.leakage_detected:
-                                    vulnerabilities_found += 1
+                        model_runs = variant.model_runs or []
+                        for run in model_runs:
+                            if run.evaluation and run.evaluation.leakage_detected:
+                                vulnerabilities_found += 1
                     except Exception as e:
                         print(f"Error running model: {e}")
 
         # Update test completion
-        TestOrchestrator.update_test_status(db, test.id)
+        TestOrchestrator.update_test_status(db, test_id)
 
         return {
             "test_id": test.id,
@@ -144,14 +156,6 @@ def delete_security_test(test_id: int, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Test {test_id} not found"
         )
-
-    # Delete associated data (cascades should handle this, but explicit is safer)
-    from app.models.database import (
-        BaselinePrompt,
-        StyleVariant,
-        ModelRun,
-        EvaluationScore,
-    )
 
     for baseline in test.baseline_prompts:
         for variant in baseline.variants:
@@ -201,71 +205,56 @@ def cancel_security_test(test_id: int, db: Session = Depends(get_db)):
 
 @router.get("/models")
 def list_available_models():
-    """List available models for testing"""
-    return {
-        "models": [
+    """List available models for testing - from config"""
+    from app.core.config import settings
+
+    models = []
+
+    # OpenAI models
+    for model in settings.openai_models_list:
+        models.append(
             {
                 "adapter": "openai",
-                "model": "gpt-4",
+                "model": model,
                 "type": "enterprise",
                 "vendor": "OpenAI",
-            },
-            {
-                "adapter": "openai",
-                "model": "gpt-4-turbo",
-                "type": "enterprise",
-                "vendor": "OpenAI",
-            },
-            {
-                "adapter": "anthropic",
-                "model": "claude-3-opus-20240229",
-                "type": "enterprise",
-                "vendor": "Anthropic",
-            },
+            }
+        )
+
+    # Anthropic models
+    for model in settings.anthropic_models_list:
+        models.append(
             {
                 "adapter": "anthropic",
-                "model": "claude-3-sonnet-20240229",
+                "model": model,
                 "type": "enterprise",
                 "vendor": "Anthropic",
-            },
-            {
-                "adapter": "anthropic",
-                "model": "claude-3-5-sonnet-20240620",
-                "type": "enterprise",
-                "vendor": "Anthropic",
-            },
+            }
+        )
+
+    # Google models
+    for model in settings.google_models_list:
+        models.append(
             {
                 "adapter": "google",
-                "model": "gemini-2.0-flash",
+                "model": model,
                 "type": "enterprise",
                 "vendor": "Google",
-            },
-            {
-                "adapter": "google",
-                "model": "gemini-2.5-flash",
-                "type": "enterprise",
-                "vendor": "Google",
-            },
-            {
-                "adapter": "ollama",
-                "model": "llama3",
-                "type": "local",
-                "vendor": "Ollama",
-            },
+            }
+        )
+
+    # Ollama models
+    for model in settings.ollama_models_list:
+        models.append(
             {
                 "adapter": "ollama",
-                "model": "mistral",
+                "model": model,
                 "type": "local",
                 "vendor": "Ollama",
-            },
-            {
-                "adapter": "ollama",
-                "model": "codellama",
-                "type": "local",
-                "vendor": "Ollama",
-            },
-        ]
-    }
+            }
+        )
+
+    return {"models": models}
 
 
 @router.get("/security-tests/{test_id}", response_model=dict)
@@ -300,22 +289,30 @@ def get_security_test(test_id: int, db: Session = Depends(get_db)):
                         "response_text": r.response_text,
                         "status": r.status,
                         "error_message": r.error_message,
-                        "evaluation": {
-                            "leakage_detected": r.evaluation.leakage_detected
+                        "evaluation": (
+                            {
+                                "leakage_detected": (
+                                    r.evaluation.leakage_detected
+                                    if r.evaluation
+                                    else False
+                                ),
+                                "risk_score": (
+                                    r.evaluation.risk_score if r.evaluation else 0
+                                ),
+                                "risk_level": (
+                                    r.evaluation.risk_level.value
+                                    if r.evaluation and r.evaluation.risk_level
+                                    else None
+                                ),
+                                "leakage_categories": (
+                                    r.evaluation.leakage_categories
+                                    if r.evaluation
+                                    else []
+                                ),
+                            }
                             if r.evaluation
-                            else False,
-                            "risk_score": r.evaluation.risk_score
-                            if r.evaluation
-                            else 0,
-                            "risk_level": r.evaluation.risk_level.value
-                            if r.evaluation and r.evaluation.risk_level
-                            else None,
-                            "leakage_categories": r.evaluation.leakage_categories
-                            if r.evaluation
-                            else [],
-                        }
-                        if r.evaluation
-                        else None,
+                            else None
+                        ),
                     }
                 )
             variants_data.append(
@@ -402,9 +399,9 @@ def list_attack_scenarios(db: Session = Depends(get_db)):
             "scenario_id": s.scenario_id,
             "name": s.scenario_name,
             "description": s.description,
-            "target_model_type": s.target_model_type.value
-            if s.target_model_type
-            else None,
+            "target_model_type": (
+                s.target_model_type.value if s.target_model_type else None
+            ),
             "compliance_frameworks": s.compliance_frameworks,
             "attack_techniques": s.attack_techniques,
             "vendor_promise_tested": s.vendor_promise_tested,
@@ -458,23 +455,27 @@ def export_test_results(
                         "variant_text": variant.variant_text,
                         "model_name": run.model_name,
                         "model_vendor": run.model_vendor,
-                        "response_text": run.response_text[:500]
-                        if run.response_text
-                        else "",
-                        "leakage_detected": eval_score.leakage_detected
-                        if eval_score
-                        else False,
-                        "leakage_categories": ",".join(eval_score.leakage_categories)
-                        if eval_score and eval_score.leakage_categories
-                        else "",
+                        "response_text": (
+                            run.response_text[:500] if run.response_text else ""
+                        ),
+                        "leakage_detected": (
+                            eval_score.leakage_detected if eval_score else False
+                        ),
+                        "leakage_categories": (
+                            ",".join(eval_score.leakage_categories)
+                            if eval_score and eval_score.leakage_categories
+                            else ""
+                        ),
                         "risk_score": eval_score.risk_score if eval_score else 0,
-                        "risk_level": eval_score.risk_level.value
-                        if eval_score and eval_score.risk_level
-                        else "N/A",
+                        "risk_level": (
+                            eval_score.risk_level.value
+                            if eval_score and eval_score.risk_level
+                            else "N/A"
+                        ),
                         "promise_held": eval_score.promise_held if eval_score else True,
-                        "vendor_promise": eval_score.vendor_promise
-                        if eval_score
-                        else "",
+                        "vendor_promise": (
+                            eval_score.vendor_promise if eval_score else ""
+                        ),
                     }
                 )
 
@@ -583,9 +584,11 @@ def export_test_results(
                     ["Attribute", "Value"],
                     [
                         "Baseline Prompt",
-                        r.get("baseline_prompt", "")[:80] + "..."
-                        if len(r.get("baseline_prompt", "")) > 80
-                        else r.get("baseline_prompt", ""),
+                        (
+                            r.get("baseline_prompt", "")[:80] + "..."
+                            if len(r.get("baseline_prompt", "")) > 80
+                            else r.get("baseline_prompt", "")
+                        ),
                     ],
                     ["Technique", r.get("technique", "")],
                     [

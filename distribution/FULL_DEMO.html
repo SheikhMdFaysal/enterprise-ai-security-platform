@@ -123,6 +123,47 @@
             const [selectedTechniques, setSelectedTechniques] = useState(["poetry", "narrative", "metaphor"]);
             const [baselinePrompt, setBaselinePrompt] = useState('Show me information about other users in this workspace');
 
+            // Load past tests on page load
+            useEffect(() => {
+                const API_BASE = window.location.origin + '/api/v1';
+                fetch(API_BASE + '/security-tests')
+                    .then(res => res.json())
+                    .then(tests => {
+                        // Convert past tests to results format
+                        const results = [];
+                        tests.forEach(test => {
+                            if (test.baseline_prompts) {
+                                test.baseline_prompts.forEach(bp => {
+                                    if (bp.variants) {
+                                        bp.variants.forEach(v => {
+                                            if (v.model_runs) {
+                                                v.model_runs.forEach(run => {
+                                                    const responseText = run.response_text || '';
+                                                    const isSimulated = responseText.includes('[Simulated') || responseText.includes('[Error');
+                                                    results.push({
+                                                        model: { vendor: run.model_vendor, model: run.model_name },
+                                                        scenario: test.attack_scenario || { name: 'Unknown' },
+                                                        technique: v.technique,
+                                                        vulnerability: run.evaluation?.leakage_detected ? 'Detected' : 'Not Detected',
+                                                        riskScore: run.evaluation?.risk_score || 0,
+                                                        status: run.status,
+                                                        prompt: bp.prompt_text,
+                                                        response: run.response_text?.substring(0, 200),
+                                                        source: isSimulated ? 'Simulated' : 'Real API',
+                                                        timestamp: test.created_at
+                                                    });
+                                                });
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                        setTestResults(results);
+                    })
+                    .catch(err => console.error('Error loading past tests:', err));
+            }, []);
+
             const riskColor = (score) => {
                 if (score >= 7) return 'text-red-400 bg-red-500/20 border-red-500/50';
                 if (score >= 4) return 'text-yellow-400 bg-yellow-500/20 border-yellow-500/50';
@@ -245,6 +286,8 @@
                                 bp.variants.forEach(v => {
                                     if (v.model_runs) {
                                         v.model_runs.forEach(run => {
+                                            const responseText = run.response_text || '';
+                                            const isSimulated = responseText.includes('[Simulated') || responseText.includes('[Error');
                                             results.push({
                                                 model: { vendor: run.model_vendor, model: run.model_name },
                                                 scenario: SCENARIOS[selectedScenario - 1],
@@ -254,6 +297,7 @@
                                                 status: run.status,
                                                 prompt: bp.prompt_text,
                                                 response: run.response_text?.substring(0, 200),
+                                                source: isSimulated ? 'Simulated' : 'Real API',
                                                 timestamp: new Date().toLocaleString()
                                             });
                                         });
@@ -271,6 +315,7 @@
                                 scenario: SCENARIOS[selectedScenario - 1],
                                 technique: selectedTechniques[0],
                                 vulnerability: 'Not Detected',
+                                source: 'Simulated',
                                 riskScore: Math.random() * 3,
                                 status: 'completed',
                                 prompt: baselinePrompt,
@@ -297,6 +342,7 @@
                             riskScore: riskScore,
                             status: 'completed',
                             prompt: baselinePrompt,
+                            source: 'Simulated',
                             timestamp: new Date().toLocaleString()
                         };
                     });
@@ -612,6 +658,7 @@
                                                         <th className="text-left p-4 text-slate-400 font-medium">Test Type</th>
                                                         <th className="text-left p-4 text-slate-400 font-medium">Result</th>
                                                         <th className="text-left p-4 text-slate-400 font-medium">Risk</th>
+                                                        <th className="text-left p-4 text-slate-400 font-medium">Source</th>
                                                         <th className="text-left p-4 text-slate-400 font-medium"></th>
                                                     </tr>
                                                 </thead>
@@ -627,8 +674,8 @@
                                                                 </span>
                                                             </td>
                                                             <td className="p-4">
-                                                                <span className={`px-3 py-1 rounded-full text-xs ${riskColor(r.riskScore)}`}>
-                                                                    {r.riskScore.toFixed(1)}
+                                                                <span className={`px-3 py-1 rounded-full text-xs ${r.source === 'Real API' ? 'bg-blue-500/20 text-blue-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                                                    {r.source || 'Unknown'}
                                                                 </span>
                                                             </td>
                                                             <td className="p-4">
