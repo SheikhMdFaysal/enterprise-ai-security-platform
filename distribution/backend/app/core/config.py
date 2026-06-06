@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     ENVIRONMENT: str = "production"
 
-    # Database
-    DATABASE_URL: str = "postgresql://user:password@localhost:5432/ai_security_db"
+    # Database (defaults to SQLite if no DATABASE_URL is set)
+    DATABASE_URL: str = "sqlite:///./ai_security.db"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -42,10 +42,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # CORS
-    ALLOWED_ORIGINS: Union[List[str], str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ]
+    ALLOWED_ORIGINS: Union[List[str], str] = ["*"]
     FRONTEND_URL: str = "http://localhost:3000"
 
     @field_validator("ALLOWED_ORIGINS", mode="before")

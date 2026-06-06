@@ -195,3 +195,11 @@ def get_session_local():
 def init_db():
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
+    try:
+        from app.seed_data import seed_attack_scenarios
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+        seed_attack_scenarios(db)
+        db.close()
+    except Exception as e:
+        print(f"[WARN] Seed data skipped: {e}")
