@@ -20,5 +20,5 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# Default command with database initialization
-CMD ["sh", "-c", "python -c 'from app.models.database import init_db; init_db()' && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Default command
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

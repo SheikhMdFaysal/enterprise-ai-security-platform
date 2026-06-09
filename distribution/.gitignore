@@ -37,3 +37,7 @@ Thumbs.db
 .ruff_cache/
 desktop.ini
 logs/
+.env.local
+.env.production
+node_modules/
+.vite/
